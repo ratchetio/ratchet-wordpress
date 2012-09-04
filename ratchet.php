@@ -242,6 +242,7 @@ class RatchetioNotifier {
                 $constant = 'E_USER_DEPRECATED';
                 break;
         }
+        $data['level'] = $level;
 
         // use the whole $errstr. may want to split this by colon for better de-duping.
         $error_class = $constant . ' ' . $errstr;
