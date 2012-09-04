@@ -1,24 +1,63 @@
 <?php
-  /*
-  Plugin Name: Ratchet
-  Plugin URI: http://github.com/ratchetio/ratchet-wordpress
-  Description: Monitors and reports PHP errors and exceptions to Ratchet.io
-  Version: 0.1
-  Author: Brian Rue
-  License: MIT
-  */
+/*
+Plugin Name: Ratchet
+Plugin URI: http://github.com/ratchetio/ratchet-wordpress
+Description: Monitors and reports PHP errors and exceptions to Ratchet.io
+Version: 0.1
+Author: Ratchet
+Author URI: https://ratchet.io/
+License: MIT
+*/
 
-function init_ratchet_plugin() {
-    
+// Don't expose any info if called directly
+if (!function_exists('add_action')) {
+    echo "Hi there! I'm just a plugin, not much I can do when called directly.";
+    exit;
+}
+
+if (is_admin()) {
+    require_once dirname(__FILE__) . '/admin.php';
+}
+
+function ratchet_init() {
     $code_root = substr(ABSPATH, 0, strlen(ABSPATH) - 1);
+    
     Ratchetio::init(array(
-        'access_token' => '162db27918c641a19387183bb0319247',
-        //'max_errno' => 1024,  // ignore E_STRICT and beyond
+        //'access_token' => '162db27918c641a19387183bb0319247',
+        'access_token' => ratchet_get_token(),
+        'max_errno' => 1024,  // ignore E_STRICT and beyond
         'root' => $code_root,
         'base_api_url' => 'http://brian.ratchetdev.com/api/1/'
     ));
-    $foo = $baz123;
+    $foo = $asdf123;
 }
+add_action('init', 'ratchet_init');
+
+function ratchet_get_token() {
+    $retval = get_option('ratchet_access_token');
+    echo "access token: $retval";
+    return $retval;
+}
+
+
+/**
+ * On activation, cause some test exceptions.
+ * TODO this doesn't appear to be getting called
+ */
+function ratchet_activation_hook() {
+    // causes a notice
+    $unused = $this_is_a_test_notice;
+
+    try {
+        throw new Exception("Ratchet.io test exception");
+    } catch (Exception $e) {
+        Ratchetio::report_exception($e);
+    }
+
+    Ratchetio::flush();
+}
+register_activation_hook(__FILE__, 'ratchet_activation_hook');
+
 
 /**
  * Singleton-style wrapper around RatchetioNotifier
@@ -72,7 +111,7 @@ class Ratchetio {
 
 class RatchetioNotifier {
     
-    const VERSION = "0.2";
+    const VERSION = "0.1";
 
     // required
     public $access_token = '';
@@ -406,7 +445,7 @@ class RatchetioNotifier {
             'language' => 'php',
             'framework' => 'php',
             'notifier' => array(
-                'name' => 'ratchet-php',
+                'name' => 'ratchet-wordpress',
                 'version' => self::VERSION
             )
         );
@@ -456,18 +495,28 @@ class RatchetioNotifier {
     
     private function make_api_call($action, $post_data) {
         $url = $this->base_api_url . $action . '/';
-
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
-        curl_setopt($ch, CURLOPT_VERBOSE, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
-        $result = curl_exec($ch);
-        $status_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        
+        if (function_exists('wp_remote_post')) {
+            $resp = wp_remote_post($url, array(
+                'body' => $post_data,
+                'timeout' => $this->timeout
+            ));
+            $status_code = $resp['response']['code'];
+            $result = $resp['body'];
+        } else {
+            // try curl
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $post_data);
+            curl_setopt($ch, CURLOPT_VERBOSE, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
+            $result = curl_exec($ch);
+            $status_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+        }
         
         if ($status_code != 200) {
             $this->log_warning('Got unexpected status code from Ratchet.io API ' . $action . 
@@ -499,6 +548,6 @@ class RatchetioNotifier {
     }
 }
 
-init_ratchet_plugin();
+//init_ratchet_plugin();
 
 ?>
